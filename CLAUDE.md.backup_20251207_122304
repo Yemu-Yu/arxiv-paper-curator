@@ -1,0 +1,562 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Repository Overview
+
+**arXiv Paper Curator** is a production-grade RAG (Retrieval-Augmented Generation) system for academic research papers. This is a learner-focused project teaching modern RAG architecture through a 7-week progression from infrastructure to agentic AI.
+
+**Project Name**: moai-zero-to-rag (Mother of AI - Phase 1)
+**Python Version**: 3.12 (strictly <3.13)
+**Architecture**: Microservices with Docker Compose
+**Status**: Week 7 - Agentic RAG with LangGraph + Telegram Bot
+
+## Quick Start
+
+### Prerequisites
+- Docker Desktop with Docker Compose
+- Python 3.12 (NOT 3.13+)
+- UV package manager
+- 8GB+ RAM, 20GB+ disk space
+
+### Initial Setup
+
+```bash
+# 1. Clone and navigate
+cd arxiv-paper-curator
+
+# 2. Configure environment (CRITICAL)
+cp .env.example .env
+# Edit .env to add:
+#   - JINA_API_KEY (free at https://jina.ai)
+#   - LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY
+#   - TELEGRAM__BOT_TOKEN (from @BotFather, optional)
+
+# 3. Install dependencies
+uv sync
+
+# 4. Start all services
+docker compose up --build -d
+
+# 5. Verify health
+make health
+# or manually:
+curl http://localhost:8000/health
+```
+
+### Access Points
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| FastAPI Docs | http://localhost:8000/docs | - |
+| Gradio Interface | http://localhost:7861 | - |
+| Langfuse Dashboard | http://localhost:3000 | - |
+| Airflow | http://localhost:8080 | See `airflow/simple_auth_manager_passwords.json.generated` |
+| OpenSearch Dashboards | http://localhost:5601 | - |
+
+## Common Commands
+
+All commands use **Make** or **uv**:
+
+### Service Management
+```bash
+make start          # Start all Docker services
+make stop           # Stop all services
+make restart        # Restart services
+make status         # Show service status
+make logs           # Follow logs
+make health         # Check all services health
+make clean          # Stop services and remove volumes
+```
+
+### Development
+```bash
+make setup          # Install Python dependencies (uv sync)
+make format         # Format code with ruff
+make lint           # Lint with ruff + type check with mypy
+make test           # Run pytest
+make test-cov       # Run tests with coverage report
+```
+
+### Running Individual Services
+```bash
+# API server (development)
+uv run uvicorn src.main:app --reload --port 8000
+
+# Gradio interface
+uv run python gradio_launcher.py
+
+# Jupyter notebooks (for weekly tutorials)
+uv run jupyter notebook notebooks/
+```
+
+## Architecture Overview
+
+### System Components (Microservices)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Docker Compose                       │
+├─────────────────────────────────────────────────────────┤
+│  FastAPI (8000)      │  Gradio (7861)                   │
+│  PostgreSQL (5432)   │  OpenSearch (9200, 5601)         │
+│  Airflow (8080)      │  Ollama (11434)                  │
+│  Langfuse (3000)     │  Redis (6379)                    │
+│  Telegram Bot        │  MinIO (9000)                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key Services:**
+- **FastAPI**: REST API with async support
+- **PostgreSQL**: Metadata storage (papers, authors, citations)
+- **OpenSearch**: Hybrid search (BM25 + vector with RRF fusion)
+- **Ollama**: Local LLM inference (default: llama3.2:1b)
+- **Airflow**: Data ingestion orchestration
+- **Langfuse**: RAG pipeline tracing and monitoring
+- **Redis**: Response caching
+- **Telegram Bot**: Mobile conversational interface
+
+### Code Structure
+
+```
+src/
+├── main.py                 # FastAPI application entry point
+├── config.py               # Pydantic settings (env var loading)
+├── dependencies.py         # FastAPI dependency injection
+├── database.py             # SQLAlchemy session management
+├── middlewares.py          # HTTP middleware (CORS, logging)
+├── db/                     # Database layer
+│   ├── models/            # SQLAlchemy ORM models
+│   └── repositories/      # Data access layer
+├── schemas/               # Pydantic request/response models
+├── routers/               # FastAPI route handlers
+│   ├── ping.py           # Health check
+│   ├── hybrid_search.py  # Search endpoints
+│   ├── ask.py            # Basic RAG endpoints
+│   └── agentic_ask.py    # Week 7 - Agentic RAG endpoints
+├── services/              # Business logic layer
+│   ├── arxiv/            # arXiv API client
+│   ├── pdf_parser/       # Docling-based PDF extraction
+│   ├── opensearch/       # Search client + query builder
+│   ├── embeddings/       # Jina embeddings client
+│   ├── ollama/           # Ollama LLM client
+│   ├── cache/            # Redis caching
+│   ├── langfuse/         # Tracing client
+│   ├── telegram/         # Telegram bot service
+│   └── agents/           # LangGraph agentic RAG
+│       ├── agentic_rag.py   # Main service orchestrator
+│       ├── state.py         # AgentState definition
+│       ├── context.py       # Runtime context (DI)
+│       ├── config.py        # Graph configuration
+│       ├── prompts.py       # LLM prompt templates
+│       ├── tools.py         # LangChain retrieval tool
+│       ├── nodes/           # LangGraph nodes
+│       │   ├── guardrail_node.py       # Query validation
+│       │   ├── retrieve_node.py        # Document retrieval
+│       │   ├── grade_documents_node.py # Relevance grading
+│       │   ├── rewrite_query_node.py   # Query optimization
+│       │   └── generate_answer_node.py # Final generation
+│       └── models.py        # Pydantic schemas
+└── gradio_app.py          # Gradio UI implementation
+
+airflow/
+└── dags/
+    └── arxiv_ingestion_dag.py  # Automated paper fetching
+
+tests/
+├── unit/              # Unit tests
+├── integration/       # Integration tests
+└── api/              # API endpoint tests
+```
+
+## Key Architectural Patterns
+
+### 1. Agentic RAG Workflow (Week 7 - LangGraph)
+
+The system uses **LangGraph** for intelligent document retrieval with decision-making:
+
+```python
+# Workflow: Guardrail → Retrieve → Grade → Rewrite/Generate
+workflow = StateGraph(AgentState, context_schema=Context)
+
+# Nodes
+workflow.add_node("guardrail", ainvoke_guardrail_step)       # Validate query scope
+workflow.add_node("retrieve", ainvoke_retrieve_step)         # Create tool call
+workflow.add_node("tool_retrieve", ToolNode(tools))          # Execute retrieval
+workflow.add_node("grade_documents", ainvoke_grade_documents_step)  # Assess relevance
+workflow.add_node("rewrite_query", ainvoke_rewrite_query_step)      # Optimize query
+workflow.add_node("generate_answer", ainvoke_generate_answer_step)  # Generate response
+
+# Conditional routing
+workflow.add_conditional_edges(
+    "guardrail",
+    lambda state: "continue" if state["guardrail_result"].score > 60 else "out_of_scope"
+)
+```
+
+**Key Features:**
+- **Guardrails**: Out-of-scope query detection (score threshold)
+- **Adaptive Retrieval**: Automatic query rewriting if documents aren't relevant
+- **Document Grading**: LLM-based relevance assessment
+- **Max Attempts**: Configurable retry limit (default: 2)
+- **Full Tracing**: Langfuse integration for every node
+
+### 2. Hybrid Search (BM25 + Vector with RRF)
+
+OpenSearch configuration uses **native Reciprocal Rank Fusion**:
+
+```python
+# Single unified index supports all search types
+ARXIV_PAPERS_CHUNKS_MAPPING = {
+    "mappings": {
+        "properties": {
+            "chunk_text": {"type": "text"},  # BM25 search
+            "chunk_embedding": {             # Vector search
+                "type": "knn_vector",
+                "dimension": 1024,
+                "method": {"name": "hnsw", "space_type": "cosinesimil"}
+            }
+        }
+    }
+}
+
+# RRF pipeline for hybrid fusion
+HYBRID_RRF_PIPELINE = {
+    "description": "Hybrid search with RRF",
+    "processors": [
+        {
+            "normalization-processor": {
+                "combination": {"technique": "rrf"}
+            }
+        }
+    ]
+}
+```
+
+### 3. Dependency Injection Pattern
+
+The codebase uses **Runtime Context** for clean dependency injection:
+
+```python
+# Context dataclass (immutable dependencies)
+@dataclass
+class Context:
+    ollama_client: OllamaClient
+    opensearch_client: OpenSearchClient
+    embeddings_client: JinaEmbeddingsClient
+    langfuse_tracer: Optional[LangfuseTracer]
+    model_name: str = "llama3.2:1b"
+    temperature: float = 0.0
+    top_k: int = 3
+
+# Nodes receive both state and runtime context
+async def ainvoke_guardrail_step(
+    state: AgentState,
+    runtime: Runtime[Context],  # Type-safe DI
+) -> Dict[str, GuardrailScoring]:
+    # Access injected dependencies
+    llm = runtime.context.ollama_client.get_langchain_model(
+        model=runtime.context.model_name
+    )
+    # ... implementation
+```
+
+### 4. Factory Pattern for Service Creation
+
+All services use factory functions:
+
+```python
+# src/services/agents/factory.py
+def make_agentic_rag_service(
+    opensearch_client: OpenSearchClient,
+    ollama_client: OllamaClient,
+    embeddings_client: JinaEmbeddingsClient,
+    langfuse_tracer: Optional[LangfuseTracer] = None,
+    graph_config: Optional[GraphConfig] = None,
+) -> AgenticRAGService:
+    return AgenticRAGService(
+        opensearch_client=opensearch_client,
+        ollama_client=ollama_client,
+        embeddings_client=embeddings_client,
+        langfuse_tracer=langfuse_tracer,
+        graph_config=graph_config or GraphConfig(),
+    )
+```
+
+## Configuration Management
+
+### Environment Variables
+
+All configuration uses **Pydantic Settings** with nested models:
+
+```python
+# src/config.py
+class Settings(BaseSettings):
+    debug: bool = Field(default=False)
+    environment: str = Field(default="development")
+
+    # Nested settings (double underscore convention)
+    class OpensearchSettings(BaseModel):
+        host: str = "http://opensearch:9200"
+        index_name: str = "arxiv-papers"
+        chunk_index_suffix: str = "chunks"
+        # ...
+
+    opensearch: OpensearchSettings = Field(default_factory=OpensearchSettings)
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_nested_delimiter="__",  # OPENSEARCH__HOST
+        extra="ignore"
+    )
+```
+
+**Naming Convention:**
+- Top-level: `DEBUG`, `ENVIRONMENT`
+- Nested: `OPENSEARCH__HOST`, `ARXIV__MAX_RESULTS`
+- All uppercase in `.env`, snake_case in code
+
+## Development Guidelines
+
+### Code Style
+
+- **Line Length**: 130 characters (ruff configured)
+- **Import Sorting**: Automatic via ruff (select = ["I"])
+- **Type Hints**: Required for public APIs (mypy enabled but `ignore_errors = true`)
+- **Async First**: All I/O operations use async/await
+
+### Testing
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run specific test file
+uv run pytest tests/unit/test_opensearch_client.py
+
+# Run with coverage
+uv run pytest --cov=src --cov-report=html
+
+# Test configuration
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+env_files = ".env.test"
+```
+
+### Adding a New Service
+
+1. Create service directory: `src/services/my_service/`
+2. Implement client: `src/services/my_service/client.py`
+3. Add factory: `src/services/my_service/factory.py`
+4. Register in `src/main.py` lifespan
+5. Add to `src/dependencies.py` for route injection
+6. Write tests: `tests/unit/test_my_service.py`
+
+### LangGraph Node Development
+
+**Pattern for new nodes:**
+
+```python
+# src/services/agents/nodes/my_node.py
+import logging
+from typing import Dict
+from langgraph.runtime import Runtime
+from ..context import Context
+from ..state import AgentState
+
+logger = logging.getLogger(__name__)
+
+async def ainvoke_my_node(
+    state: AgentState,
+    runtime: Runtime[Context],
+) -> Dict[str, Any]:
+    """
+    Node description.
+
+    :param state: Current agent state
+    :param runtime: Runtime context with injected dependencies
+    :returns: Dictionary with state updates
+    """
+    logger.info("NODE: my_node")
+
+    # Create Langfuse span (optional)
+    span = None
+    if runtime.context.langfuse_enabled and runtime.context.trace:
+        span = runtime.context.langfuse_tracer.create_span(
+            trace=runtime.context.trace,
+            name="my_node",
+            input_data={"query": state.get("query")},
+        )
+
+    try:
+        # Node logic here
+        result = await process_something(state, runtime)
+
+        if span:
+            runtime.context.langfuse_tracer.end_span(span, output=result)
+
+        return {"my_result": result}
+    except Exception as e:
+        if span:
+            runtime.context.langfuse_tracer.end_span(span, output={"error": str(e)}, level="ERROR")
+        raise
+```
+
+## Week-by-Week Learning Path
+
+The project is structured as a **progressive learning course**:
+
+| Week | Focus | Key Files |
+|------|-------|-----------|
+| 1 | Infrastructure | `compose.yml`, `Dockerfile`, `src/main.py` |
+| 2 | Data Ingestion | `airflow/dags/`, `src/services/arxiv/`, `src/services/pdf_parser/` |
+| 3 | BM25 Search | `src/services/opensearch/query_builder.py`, `src/routers/hybrid_search.py` |
+| 4 | Chunking + Hybrid | `src/services/indexing/chunker.py`, OpenSearch vector config |
+| 5 | Basic RAG | `src/routers/ask.py`, `src/services/ollama/`, `src/gradio_app.py` |
+| 6 | Monitoring + Cache | `src/services/langfuse/`, `src/services/cache/` |
+| 7 | Agentic RAG | `src/services/agents/`, `src/routers/agentic_ask.py`, `src/services/telegram/` |
+
+**Blog Posts**: Each week has a detailed blog post at https://jamwithai.substack.com
+
+## Important Constraints
+
+### Python Version
+- **MUST use Python 3.12** (3.13+ not compatible with current dependencies)
+- UV enforces this: `requires-python = ">=3.12,<3.13"`
+
+### Docker Compose
+- All services must be running for full functionality
+- OpenSearch requires ~4GB RAM allocation
+- Ollama requires ~2GB RAM per model
+
+### API Keys Required
+- **Jina AI**: Free tier for embeddings (1M requests/month)
+- **Langfuse**: Optional, self-hosted in docker-compose
+- **Telegram**: Optional, from @BotFather
+
+### Known Issues
+- Ollama cold start takes 30-60 seconds on first query
+- OpenSearch may require `vm.max_map_count=262144` on Linux
+- Airflow needs 2-3 minutes to initialize on first start
+
+## Debugging Tips
+
+### Service Not Starting
+```bash
+# Check logs for specific service
+docker compose logs opensearch
+docker compose logs api
+
+# Check all container status
+make status
+```
+
+### OpenSearch Connection Issues
+```bash
+# Test connectivity
+curl http://localhost:9200/_cluster/health
+
+# Check index exists
+curl http://localhost:9200/arxiv-papers-chunks/_count
+```
+
+### LangGraph Tracing
+```bash
+# Enable verbose logging in .env
+DEBUG=true
+
+# Check Langfuse dashboard
+# http://localhost:3000
+# Default: public key from .env.example
+```
+
+### Testing Agentic RAG
+```bash
+# Via API
+curl -X POST http://localhost:8000/ask-agentic \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What are transformer architectures?"}'
+
+# Via Gradio
+# http://localhost:7861 - Select "Agentic RAG" tab
+
+# Via Telegram (if configured)
+# Message your bot: /start then ask questions
+```
+
+## Resources
+
+- **Blog Series**: https://jamwithai.substack.com/p/the-mother-of-ai-project
+- **GitHub Releases**: Tagged by week (week1.0, week2.0, etc.)
+- **Notebooks**: `notebooks/week{1-7}/` for hands-on tutorials
+- **Documentation**: Auto-generated at http://localhost:8000/docs when running
+
+## Contributing Notes
+
+- All new features should follow the factory pattern
+- Add tests for new services/routers
+- Update `.env.example` if adding new config
+- Run `make lint` before committing
+- Use pre-commit hooks: `uv run pre-commit install`
+
+---
+
+## 🔄 Scalar Migration Progress
+
+### Day 0: Pre-Implementation - 2025-12-07 12:19:15
+
+**Status**: ✅ Completed
+
+**Changes**: Installed all dependencies and verified environment
+
+**Tests**: All 2 test rounds passed
+
+**Files Modified**:
+
+
+**Next Step**: Day 1: Environment Setup and Baseline Testing
+
+
+---
+
+## 🔄 Scalar Migration Progress
+
+### Day 1: Environment Setup and Baseline Testing - 2025-12-07 12:20:32
+
+**Status**: ✅ Completed
+
+**Changes**: Created baseline performance test and exported original OpenAPI spec
+
+**Tests**: All 2 test rounds passed
+
+**Files Modified**:
+
+
+**Next Step**: Day 2: OpenAPI Specification Enhancement
+
+
+---
+
+## 🔄 Scalar Migration Progress
+
+### Day 2: OpenAPI Specification Enhancement - 2025-12-07 12:21:42
+
+**Status**: ✅ Completed
+
+**Changes**: Enhanced OpenAPI specification with comprehensive metadata, tag descriptions, and fixed SSE endpoint
+
+**Modifications**:
+- Enhanced FastAPI app with detailed description, contact info, license, and servers
+- Added comprehensive openapi_tags for all endpoints (Health, hybrid-search, ask, stream, agentic-rag)
+- Implemented custom_openapi() function with Scalar x-tagGroups extension
+- Fixed SSE endpoint: media_type changed from "text/plain" to "text/event-stream"
+- Added X-Accel-Buffering header to prevent Nginx buffering
+
+**Tests**: Manual code review completed, no syntax errors
+
+**Files Modified**:
+- src/main.py: +204 lines (FastAPI metadata, tags, custom OpenAPI function)
+- src/routers/ask.py: Fixed StreamingResponse media_type and headers
+
+**Next Step**: Day 3: Scalar Static Site Generation
+

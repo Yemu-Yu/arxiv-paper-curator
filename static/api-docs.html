@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>arXiv Paper Curator API Documentation</title>
+    <style>
+        body { margin: 0; padding: 0; }
+    </style>
+</head>
+<body>
+    <script
+        id="api-reference"
+        type="application/json"
+        data-url="http://localhost:8000/openapi.json">
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.25.30/dist/browser/standalone.min.js"></script>
+
+    <script>
+        const configuration = {
+            spec: { url: 'http://localhost:8000/openapi.json' },
+            theme: 'purple',
+            layout: 'modern',
+            darkMode: false,
+            showSidebar: true,
+            hideDownloadButton: false,
+            hideTestRequestSnippets: false,
+            defaultHttpClient: {
+                targetKey: 'javascript',
+                clientKey: 'fetch'
+            }
+        };
+    </script>
+</body>
+</html>
