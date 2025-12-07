@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from langchain_core.messages import HumanMessage
 from langfuse.langchain import CallbackHandler
