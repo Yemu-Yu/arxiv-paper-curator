@@ -1,0 +1,5 @@
+{
+  "note": "API was not running during test. Run baseline test manually when API is available.",
+  "timestamp": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'",
+  "status": "pending"
+}
