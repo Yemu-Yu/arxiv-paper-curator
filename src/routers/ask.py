@@ -269,5 +269,11 @@ async def ask_question_stream(
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return StreamingResponse(
-        generate_stream(), media_type="text/plain", headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
     )
