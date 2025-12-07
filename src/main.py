@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from src.config import get_settings
 from src.db.factory import make_database
@@ -147,32 +148,19 @@ For issues and feature requests, visit [GitHub Issues](https://github.com/Yemu-Y
     """,
     version=os.getenv("APP_VERSION", "0.1.0"),
     lifespan=lifespan,
-
     # Contact information
     contact={
         "name": "arXiv Paper Curator Team",
         "url": "https://github.com/Yemu-Yu/arxiv-paper-curator",
-        "email": "contact@example.com"
+        "email": "contact@example.com",
     },
-
     # License
-    license_info={
-        "name": "MIT License",
-        "url": "https://github.com/Yemu-Yu/arxiv-paper-curator/blob/main/LICENSE"
-    },
-
+    license_info={"name": "MIT License", "url": "https://github.com/Yemu-Yu/arxiv-paper-curator/blob/main/LICENSE"},
     # Server configuration (displayed in Scalar UI)
     servers=[
-        {
-            "url": "http://localhost:8000",
-            "description": "🛠️ Development Server (Local)"
-        },
-        {
-            "url": "http://api:8000",
-            "description": "🐳 Docker Internal Network"
-        }
+        {"url": "http://localhost:8000", "description": "🛠️ Development Server (Local)"},
+        {"url": "http://api:8000", "description": "🐳 Docker Internal Network"},
     ],
-
     # Tags grouping (for Scalar sidebar)
     openapi_tags=[
         {
@@ -191,8 +179,8 @@ Monitor the health of all backend services including:
             """,
             "externalDocs": {
                 "description": "Health Check Pattern",
-                "url": "https://microservices.io/patterns/observability/health-check-api.html"
-            }
+                "url": "https://microservices.io/patterns/observability/health-check-api.html",
+            },
         },
         {
             "name": "hybrid-search",
@@ -217,8 +205,8 @@ Search academic papers using **BM25** (keyword) + **Vector Similarity** (semanti
             """,
             "externalDocs": {
                 "description": "Hybrid Search Tutorial",
-                "url": "https://jamwithai.substack.com/p/chunking-strategies-and-hybrid-rag"
-            }
+                "url": "https://jamwithai.substack.com/p/chunking-strategies-and-hybrid-rag",
+            },
         },
         {
             "name": "ask",
@@ -241,7 +229,7 @@ Simple Retrieval-Augmented Generation with **Redis caching**.
 - Cache-friendly workloads
 
 **Average Latency**: 2-4 seconds for cache miss, <50ms for cache hit.
-            """
+            """,
         },
         {
             "name": "stream",
@@ -271,7 +259,7 @@ eventSource.onmessage = (event) => {
 ```
 
 **Recommended For**: Interactive UIs, chatbots, real-time applications.
-            """
+            """,
         },
         {
             "name": "agentic-rag",
@@ -299,13 +287,21 @@ Input Query → Guardrail Check → Hybrid Search → Grade Chunks
 
 **Best For**: Complex academic questions requiring intelligent document selection.
             """,
-            "externalDocs": {
-                "description": "LangGraph Tutorial",
-                "url": "https://langchain-ai.github.io/langgraph/"
-            }
-        }
-    ]
+            "externalDocs": {"description": "LangGraph Tutorial", "url": "https://langchain-ai.github.io/langgraph/"},
+        },
+    ],
 )
+
+# Add CORS middleware IMMEDIATELY after app creation (CRITICAL for Scalar)
+# Must be added BEFORE any routes or OpenAPI configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development (restrict in production)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # Custom OpenAPI schema with Scalar enhancements
 def custom_openapi():
@@ -331,20 +327,14 @@ def custom_openapi():
                 "type": "apiKey",
                 "in": "header",
                 "name": "X-API-Key",
-                "description": "API key for authentication (future feature)"
+                "description": "API key for authentication (future feature)",
             }
         }
 
     # Scalar Tag Groups (grouped display)
     openapi_schema["x-tagGroups"] = [
-        {
-            "name": "Core Services",
-            "tags": ["Health", "hybrid-search"]
-        },
-        {
-            "name": "RAG Endpoints",
-            "tags": ["ask", "stream", "agentic-rag"]
-        }
+        {"name": "Core Services", "tags": ["Health", "hybrid-search"]},
+        {"name": "RAG Endpoints", "tags": ["ask", "stream", "agentic-rag"]},
     ]
 
     app.openapi_schema = openapi_schema
